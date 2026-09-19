@@ -36,6 +36,66 @@ import traceback
 HOME = os.path.expanduser('~')
 
 
+def _redact_path(p):
+    """把绝对路径脱敏成可读形式：保留尾层与盘符/家目录语义，抹掉用户名。
+
+    目的：输出可以放心贴进 issue 或截图，不带上本机用户名与目录结构。
+    例：
+      C:\\Users\\alice\\bin\\bsk.exe   → <home>\\bin\\bsk.exe
+      /home/alice/.local/bin/bsk      → <home>/.local/bin/bsk
+      E:\\work\\proj\\photos           → E:\\…\\photos
+    """
+    if not p:
+        return p
+    s = str(p)
+    # 家目录整体替换（Windows 与 Unix 两种形态）
+    for h in {HOME, HOME.replace('\\', '/'), HOME.replace('/', '\\')}:
+        if h and s.lower().startswith(h.lower()):
+            return '<home>' + s[len(h):]
+    # 仍带盘符的绝对路径：保留盘符 + 尾两层
+    m = re.match(r'^([A-Za-z]:)[\\/](.*)$', s)
+    if m:
+        rest = m.group(2).replace('/', '\\').strip('\\')
+        parts = [x for x in rest.split('\\') if x]
+        tail = '\\'.join(parts[-2:]) if parts else ''
+        return '%s\\…\\%s' % (m.group(1), tail) if tail else '%s\\…' % m.group(1)
+    # Unix 绝对路径：保留尾两层
+    if s.startswith('/'):
+        parts = [x for x in s.split('/') if x]
+        return '/…/' + '/'.join(parts[-2:]) if parts else '/…'
+    return s
+
+
+# 输出前兜底扫描：这些串不该出现在任何会被分享的报告里
+# 注意"吃干净"原则：命中一个键值对后要把整个值吃完，别留下尾巴（如 Bearer 后面的 JWT）
+_SECRET_PAT = [
+    ('xsec_token', re.compile(r'xsec_token=[^&\s"\']+')),
+    ('xsec_source', re.compile(r'xsec_source=[^&\s"\']+')),
+    ('cookie', re.compile(r'(?i)\bcookie\s*[:=]\s*[^\r\n]+')),
+    ('authorization', re.compile(r'(?i)\bauthorization\s*[:=]\s*[^\r\n]+')),
+    ('bearer', re.compile(r'(?i)\bbearer\s+[A-Za-z0-9._\-]+')),
+    ('api_key', re.compile(r'(?i)\bapi[_-]?key\s*[:=]\s*\S+')),
+    ('secret', re.compile(r'(?i)\bsecret\s*[:=]\s*\S+')),
+    ('win_user_path', re.compile(r'(?i)[A-Z]:\\Users\\[^\\\s"\']+')),
+    ('unix_user_path', re.compile(r'/(?:home|Users)/[^/\s"\']+')),
+]
+
+
+def _scan_secrets(text):
+    """返回 [(名称, 命中的原文串)] —— 供输出前最后一道脱敏。"""
+    found = []
+    for name, pat in _SECRET_PAT:
+        for m in pat.finditer(text):
+            found.append((name, m.group(0)))
+    # 同一串只报一次
+    seen, out = set(), []
+    for n, s in found:
+        if s not in seen:
+            seen.add(s)
+            out.append((n, s))
+    return out
+
+
 def _cands(env_var, xdg_subs, extra=None):
     """按 环境变量 → ~/.workbuddy/keys → ~/.local/bin → PATH 的顺序给出候选。"""
     out = []
@@ -134,7 +194,7 @@ def check_module(name, import_name=None):
                     fix='"%s" -m pip install %s' % (sys.executable, name))
 
 
-def check_bsk():
+def check_bsk(verbose=False):
     exe = first_exist(KNOWN['bsk']) or which('bsk')
     if not exe:
         return dict(ok=False, exe=None, detail='未找到 bsk 可执行文件',
@@ -146,25 +206,41 @@ def check_bsk():
     env['PATH'] = os.path.dirname(exe) + os.pathsep + env.get('PATH', '')
     env['BSK_AUTO_START'] = '0'          # 避免重复拉起 daemon
     ok, out = run([exe, 'status', '--json'], timeout=45, env=env)
+    # 默认只留可枚举的脱敏状态；bsk 原始输出可能含 URL / 账号标识 / 调试字段，
+    # 只在 --verbose 时输出（且已做脱敏），避免它被顺手贴进 issue。
+    raw = _redact_path(out.strip()[:200]) if verbose else None
     if not ok:
-        return dict(ok=True, exe=exe, detail='bsk 存在，但 status 调用失败（daemon 可能未运行）',
-                    browsers=None, raw=out.strip()[:200],
-                    fix=('启动 daemon：\n    "%s" daemon start\n'
-                         '若报权限/超时，daemon 可能其实在跑，直接重试 status' % exe))
+        d = dict(ok=True, exe=_redact_path(exe),
+                 detail='bsk 存在，但 status 调用失败（daemon 可能未运行）',
+                 browsers=None, daemon_online=False,
+                 fix=('启动 daemon：\n    "%s" daemon start\n'
+                      '若报权限/超时，daemon 可能其实在跑，直接重试 status'
+                      % _redact_path(exe)))
+        if raw:
+            d['raw'] = raw
+        return d
     nb, ns, ver = parse_bsk_status(out)
     if not nb:
-        return dict(ok=True, exe=exe, detail='daemon 在线（%s），但没有连接浏览器' % (ver or '?'),
-                    browsers=0, raw=out.strip()[:200],
-                    fix=('bsk 需要连到你**已登录小红书**的 Chrome：\n'
-                         '    1) 在 Chrome 里确认 BrowserSkill 扩展已启用\n'
-                         '    2) 扩展里点击连接 / 或重启 Chrome\n'
-                         '    3) 确认已登录 xiaohongshu.com（打开首页看看头像在不在）\n'
-                         '    然后重跑：bsk status'))
-    return dict(ok=True, exe=exe, detail='daemon %s，浏览器 %d 个已连接' % (ver or '?', nb),
-                browsers=nb, sessions=ns, raw=out.strip()[:200], fix='')
+        d = dict(ok=True, exe=_redact_path(exe),
+                 detail='daemon 在线（%s），但没有连接浏览器' % (ver or '?'),
+                 browsers=0, daemon_online=True,
+                 fix=('bsk 需要连到你**已登录小红书**的 Chrome：\n'
+                      '    1) 在 Chrome 里确认 BrowserSkill 扩展已启用\n'
+                      '    2) 扩展里点击连接 / 或重启 Chrome\n'
+                      '    3) 确认已登录 xiaohongshu.com（打开首页看看头像在不在）\n'
+                      '    然后重跑：bsk status'))
+        if raw:
+            d['raw'] = raw
+        return d
+    d = dict(ok=True, exe=_redact_path(exe),
+             detail='daemon %s，浏览器 %d 个已连接' % (ver or '?', nb),
+             browsers=nb, sessions=ns, daemon_online=True, fix='')
+    if raw:
+        d['raw'] = raw
+    return d
 
 
-def check_keyfile(kind, label):
+def check_keyfile(kind, label, verbose=False):
     p = first_exist(KNOWN[kind])
     if not p:
         fix = ('获取免费高德 Key：\n'
@@ -177,13 +253,17 @@ def check_keyfile(kind, label):
     try:
         val = io.open(p, encoding='utf-8', errors='ignore').read().strip()
     except Exception as e:
-        return dict(ok=False, path=p, detail='读取失败: %s' % e, fix='检查文件权限与编码')
-    # 只报长度与前后缀特征，绝不回显密钥本体
+        return dict(ok=False, path=_redact_path(p), detail='读取失败: %s' % e,
+                    fix='检查文件权限与编码')
+    # 只报长度，绝不回显密钥本体、前缀、后缀或哈希。
+    # 长度是必要的诊断信号（能区分"文件空的"和"Key 被对话通道截断了"），
+    # 而它不泄露任何可用于猜测密钥的信息。
     n = len(val)
+    shown = _redact_path(p) if verbose else '已找到'
     if n < 16:
-        return dict(ok=False, path=p, detail='文件存在但内容过短（%d 字符）' % n,
+        return dict(ok=False, path=shown, detail='文件存在但内容过短（%d 字符）' % n,
                     fix='疑似被截断。重新写入完整 Key（高德 Key 通常 32 位）')
-    return dict(ok=True, path=p, detail='已配置（%d 字符，%s…）' % (n, val[:2]), fix='')
+    return dict(ok=True, path=shown, detail='已配置（长度 %d）' % n, fix='')
 
 
 def check_workdir(wd):
@@ -210,6 +290,9 @@ def main():
     ap.add_argument('--quick', action='store_true', help='只查关键项：高德 Key + bsk')
     ap.add_argument('--workdir', default='', help='路书工作目录（可选）')
     ap.add_argument('--report', default='', help='报告写入路径（默认仅 stdout）')
+    ap.add_argument('--verbose', action='store_true',
+                    help='输出诊断细节（依赖路径、bsk 原始状态）。默认关闭：'
+                         '输出已脱敏，便于直接贴进 issue 或截图')
     a = ap.parse_args()
 
     R = {'checks': {}, 'summary': {}}
@@ -224,8 +307,8 @@ def main():
             R['checks']['pillow'] = check_module('pillow', 'PIL')
             R['checks']['fonttools'] = check_module('fonttools', 'fontTools')
             R['checks']['requests'] = check_module('requests')
-        R['checks']['bsk'] = check_bsk()
-        R['checks']['amap_key'] = check_keyfile('amap_key', '高德 Key')
+        R['checks']['bsk'] = check_bsk(verbose=a.verbose)
+        R['checks']['amap_key'] = check_keyfile('amap_key', '高德 Key', verbose=a.verbose)
         if a.workdir:
             R['checks']['workdir'] = check_workdir(a.workdir)
 
@@ -311,6 +394,16 @@ def main():
 
     text = '\n'.join(lines)
 
+    # ── 输出前最后一道闸：确保报告里没有敏感串 ──
+    # 这份输出经常会被贴进 issue 或截图分享，所以不能只依赖上面的逐点脱敏。
+    leak = _scan_secrets(text)
+    if leak:
+        for name, sample in leak:
+            text = text.replace(sample, '<redacted:%s>' % name)
+        emit_guard = '[preflight] 已自动脱敏 %d 处敏感串（%s）' % (
+            len(leak), ', '.join(sorted({n for n, _ in leak})))
+        sys.stderr.write(emit_guard + '\n')
+
     if a.json:
         print(json.dumps(R, ensure_ascii=False, indent=2))
     else:
@@ -319,7 +412,7 @@ def main():
     if a.report:
         try:
             io.open(a.report, 'w', encoding='utf-8').write(text)
-            print('\n报告已写入: %s' % a.report)
+            print('\n报告已写入: %s' % _redact_path(a.report))
         except Exception as e:
             print('报告写入失败: %s' % e)
 
