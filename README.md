@@ -1,21 +1,19 @@
 <div align="center">
 
-# 旅游路书生产流水线
+# 路书生成器
 
 **把一句话目的地，变成一份可核实、图文匹配、可打印的 HTML 路书**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-2ea44f.svg?style=flat-square)](LICENSE)
-[![Skill](https://img.shields.io/badge/WorkBuddy-Agent%20Skill-4B6BFB.svg?style=flat-square)](#安装)
+[![Agent Skill](https://img.shields.io/badge/Works%20with-Claude%20Code%20%7C%20Codex%20%7C%20Cursor%20%7C%20WorkBuddy-4B6BFB.svg?style=flat-square)](#安装)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](#环境要求)
+[![Live Data](https://img.shields.io/badge/data-AMap%20REST%20%2B%20RedNote-FF5A5F.svg?style=flat-square)](#为什么比其他做法更可靠)
 [![Dependencies](https://img.shields.io/badge/dependencies-Pillow%20%7C%20fontTools%20(optional)-2496ED.svg?style=flat-square)](#环境要求)
-[![Zero Deploy](https://img.shields.io/badge/deploy-not%20required-6f42c1.svg?style=flat-square)](#设计取舍)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](#贡献指南)
 
-一个端到端的 **AI Agent 技能包**：从需求采集、路线规划、多源数据核验，到生成零外链的单文件 HTML 路书。
+一个端到端的 **Agent 技能包**：从需求采集、路线规划、多源交叉验证，到生成零外链的单文件 HTML 路书。
 
-[功能特性](#功能特性) · [安装](#安装) · [快速开始](#快速开始) · [配置](#配置说明) · [示例](#示例) · [常见问题](#常见问题) · [贡献](#贡献指南) · [许可证](#许可证)
-
-<sub>📄 [发布说明](RELEASE.md) —— 文件结构组织、提交规范、发布注意事项</sub>
+[为什么更可靠](#为什么比其他做法更可靠) · [功能特性](#功能特性) · [安装](#安装) · [快速开始](#快速开始) · [配置](#配置说明) · [示例](#示例) · [常见问题](#常见问题) · [贡献](#贡献指南) · [许可证](#许可证)
 
 </div>
 
@@ -25,10 +23,25 @@
 
 **English Summary**
 
-> An end-to-end AI agent skill that turns a one-line travel request into a verifiable, print-ready
-> single-file HTML roadbook. It orchestrates interactive requirement gathering, route planning,
-> cross-source verification (AMap REST + OSRM + Xiaohongshu), HTML generation, and gated image
-> validation — with a hard rule that **every number must be traceable to a source**.
+> An end-to-end agent skill that turns a one-line travel request into a verifiable, print-ready
+> single-file HTML roadbook. It grounds every number in **live** sources rather than stale
+> general knowledge: **AMap REST** for routing and mileage, and **Xiaohongshu (RedNote)** search
+> for first-hand on-the-ground intel — filtered by recency and season. Gated image validation
+> keeps photos honest, with a hard rule that **every number must be traceable to a source**.
+
+### 为什么比其他做法更可靠
+
+普通做法是**让模型凭记忆写**——训练数据里那些攻略可能已经过时好几年，路况、补能设施、景区规则全变了。本项目把关键信息全部改成**实时取数**：
+
+| 维度 | 普通做法 | 本项目的做法 |
+|---|---|---|
+| **路线与里程** | 模型凭印象估，或抄几年前的攻略数字 | 调用**高德 REST 实时导航数据** —— 国内路网数据最准的来源，逐段返回真实里程、时长与过路费 |
+| **在地情报** | 用搜索引擎找攻略，**结果不知道是哪一年写的** | **自动在小红书检索真实笔记** —— 一手实拍与实地反馈，比二手转载的搜索摘要鲜活得多 |
+| **时效性** | 热门攻略常年霸榜，越热越可能过期 | 递进式硬筛：**只采信 2 年内**发布的笔记，再找「时效分水岭」（新路通车 / 充电桩投运 / 景区改制），分水岭之前的信息**整体作废** |
+| **季节性** | 7 月的草原攻略被拿去规划 10 月行程，景观与路况全错 | **只采信与本次行程同季节**的笔记 —— 判定看客观条件（气温带 / 昼夜长度 / 雨季 / 结冰期），**不看月份数字** |
+
+> 🔎 一句话总结：**把「模型回忆」换成「实时取数 + 时效过滤」。**
+> 高德负责「路怎么走、多远、多久」，小红书负责「到了那边现在是什么样」。
 
 ### 它解决什么问题
 
@@ -56,22 +69,26 @@
 
 ## 功能特性
 
-### 🗺 路线与数据
+### 🗺 路线与数据（高德 REST 实时导航）
 
-- **逐段里程核验**：以高德 REST `/v3/direction/driving?strategy=0` 为主口径，OSRM 作独立交叉引擎（只信里程，不信时长——其对中国限速的模型不准）
+- **逐段里程核验**：以高德 REST `/v3/direction/driving?strategy=0` 为**主口径**，直接取实时导航返回的真实里程与时长；OSRM 作独立交叉引擎（只信里程，不信时长——其对中国限速的模型不准）
 - **POI 坐标校准**：非城区 POI 先经 `/v3/place/text` 校准坐标，避免景区支线段里程失真
 - **落脚点比选三步法**：按**纯驾驶时长**而非里程挑过夜城市，比"最长单日"而非平均值
 - **单日疲劳预警**：纯驾驶 > 8 h 的日子单独标出
 
-### 📰 情报时效三筛（递进式硬筛）
+> 为什么是高德：国内路网数据最准的来源之一，且**返回的是当前路况下的结果**，不是训练数据里的记忆。
 
-小红书情报在进入候选池前必须过三道筛：
+### 📰 小红书情报检索（反过时）
+
+**自动在小红书检索真实笔记**，取一手实拍与实地反馈，代替搜索引擎里年份不明的二手攻略。情报在进入候选池前必须过三道递进硬筛：
 
 1. **只采信 2 年内发布**的笔记（中国路网与补能设施更新周期普遍 1–2 年）
 2. **只采信与本次行程同季节**的笔记 —— 判定看客观条件（气温带 / 昼夜长度 / 雨季 / 结冰期），**不看月份数字**；交界月按实况判
 3. 再找**时效分水岭**（新路通车、充电桩投运、景区改制等），分水岭之前的信息整体作废
 
 > 同季节素材不足时，**宁可减少情报量，也不跨季节硬凑**。
+>
+> 普通搜索的问题是**没有时间戳语义** —— 一篇 2021 年的热门攻略会常年排在前面，而它描述的路况可能早已不成立。
 
 ### 🖼 分级闸门图片校验
 
@@ -107,16 +124,36 @@
 | **高德 REST Key** | 必需 | 免费申请，见下方 |
 | **fontTools** | 可选 | 仅自托管中文字体子集化时需要 |
 
-### 方式一：作为 WorkBuddy 技能安装（推荐）
+### 方式一：作为 Agent 技能安装（推荐）
+
+这是一个标准的 **Agent Skill** —— 只要你的 Agent 支持「读取技能目录下的 `SKILL.md`」这一约定，就能直接使用。安装只需把仓库克隆进它的技能目录：
 
 ```bash
-git clone https://github.com/Wexexortexort/travel-roadbook-pipeline.git \
-  ~/.workbuddy/skills/travel-roadbook-pipeline
+git clone https://github.com/Wexexortexort/travel-roadbook-pipeline.git <你的技能目录>/travel-roadbook-pipeline
 ```
 
-技能目录名与 `SKILL.md` 的 `name` 字段一致，克隆后即可被直接发现，**无需改名**。
+目录名与 `SKILL.md` 的 `name` 字段一致，克隆后即可被直接发现，**无需改名或额外注册**。
 
-### 方式二：独立使用脚本
+各家 Agent 的默认技能目录（供参考，以你所用工具的文档为准）：
+
+<details>
+<summary><b>展开查看各 Agent 的技能目录</b></summary>
+
+| Agent | 默认技能目录 | 备注 |
+|---|---|---|
+| **Claude Code** | `~/.claude/skills/` | 用户级；项目级可放 `<项目>/.claude/skills/` |
+| **Codex** | `~/.codex/skills/` | 用户级；亦支持项目级目录 |
+| **WorkBuddy** | `~/.workbuddy/skills/` | 用户级；项目级可放 `<项目>/.workbuddy/skills/` |
+| **Cursor** | `<项目>/.cursor/skills/` | 以项目级为主 |
+| **其他** | 见其文档 | 只要识别 `SKILL.md` 约定即可，本技能未使用任何平台私有字段 |
+
+</details>
+
+> 若你的 Agent 用不同约定（如放在项目内的 `.agent/skills/`），放进去即可 —— `SKILL.md` 的 frontmatter 只用了 `name` / `description` 这类通用字段，**没有平台专有依赖**。
+
+### 方式二：只用脚本，不接入 Agent
+
+三个脚本都是独立 CLI，可以脱离任何 Agent 单独跑：
 
 ```bash
 git clone https://github.com/Wexexortexort/travel-roadbook-pipeline.git
@@ -176,8 +213,8 @@ Phase  6  交付前自检        → 静态检查 + 数据守恒 + 浏览器实�
 5. 存成文件，例如：
 
 ```bash
-mkdir -p ~/.workbuddy/keys
-echo -n "你的KEY" > ~/.workbuddy/keys/amap.key
+mkdir -p ~/.config/roadbook
+echo -n "你的KEY" > ~/.config/roadbook/amap.key
 ```
 
 > ⚠️ **密钥纪律**：**不要把 Key 贴进对话** —— 对话通道会对疑似密钥做截断/脱敏（实测 40 字符的凭据只收到 24 字符）。一律让用户写成文件，脚本读文件。`preflight.py` 也只回报长度与前缀特征，**绝不回显密钥本体**。
