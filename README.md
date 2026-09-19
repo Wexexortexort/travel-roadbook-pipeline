@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-2ea44f.svg?style=flat-square)](LICENSE)
 [![Agent Skill](https://img.shields.io/badge/Works%20with-Claude%20Code%20%7C%20Codex%20%7C%20Cursor%20%7C%20WorkBuddy-4B6BFB.svg?style=flat-square)](#安装)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](#环境要求)
-[![Live Data](https://img.shields.io/badge/data-AMap%20REST%20%2B%20RedNote-FF5A5F.svg?style=flat-square)](#为什么比其他做法更可靠)
+[![Data](https://img.shields.io/badge/data-AMap%20REST%20%2B%20RedNote-FF5A5F.svg?style=flat-square)](#为什么比其他做法更可靠)
 [![Dependencies](https://img.shields.io/badge/dependencies-Pillow%20%7C%20fontTools%20(optional)-2496ED.svg?style=flat-square)](#环境要求)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](#贡献指南)
 
@@ -24,24 +24,31 @@
 **English Summary**
 
 > An end-to-end agent skill that turns a one-line travel request into a verifiable, print-ready
-> single-file HTML roadbook. It grounds every number in **live** sources rather than stale
-> general knowledge: **AMap REST** for routing and mileage, and **Xiaohongshu (RedNote)** search
-> for first-hand on-the-ground intel — filtered by recency and season. Gated image validation
-> keeps photos honest, with a hard rule that **every number must be traceable to a source**.
+> single-file HTML roadbook. Instead of relying on stale model recall, it grounds every number in
+> **queried sources**: **AMap REST** for route calculation (mileage, duration, tolls), and
+> **Xiaohongshu (RedNote)** search for first-hand on-the-ground intel — filtered by recency and season.
+> Gated image validation keeps photos honest, with a hard rule that **every number must be traceable
+> to a source**.
 
 ### 为什么比其他做法更可靠
 
-普通做法是**让模型凭记忆写**——训练数据里那些攻略可能已经过时好几年，路况、补能设施、景区规则全变了。本项目把关键信息全部改成**实时取数**：
+普通做法是**让模型凭记忆写**——训练数据里那些攻略可能已经过时好几年，路况、补能设施、景区规则全变了。本项目把关键信息改成**现查现用**：
 
 | 维度 | 普通做法 | 本项目的做法 |
 |---|---|---|
-| **路线与里程** | 模型凭印象估，或抄几年前的攻略数字 | 调用**高德 REST 实时导航数据** —— 国内路网数据最准的来源，逐段返回真实里程、时长与过路费 |
+| **路线与里程** | 模型凭印象估，或抄几年前的攻略数字 | 调用**高德 REST 路线计算** —— 路网数据最新最全的来源之一，逐段返回里程、预计时长与过路费 |
 | **在地情报** | 用搜索引擎找攻略，**结果不知道是哪一年写的** | **自动在小红书检索真实笔记** —— 一手实拍与实地反馈，比二手转载的搜索摘要鲜活得多 |
 | **时效性** | 热门攻略常年霸榜，越热越可能过期 | 递进式硬筛：**只采信 2 年内**发布的笔记，再找「时效分水岭」（新路通车 / 充电桩投运 / 景区改制），分水岭之前的信息**整体作废** |
 | **季节性** | 7 月的草原攻略被拿去规划 10 月行程，景观与路况全错 | **只采信与本次行程同季节**的笔记 —— 判定看客观条件（气温带 / 昼夜长度 / 雨季 / 结冰期），**不看月份数字** |
 
-> 🔎 一句话总结：**把「模型回忆」换成「实时取数 + 时效过滤」。**
+> 🔎 一句话总结：**把「模型回忆」换成「现查现用 + 时效过滤」。**
 > 高德负责「路怎么走、多远、多久」，小红书负责「到了那边现在是什么样」。
+
+> ⚠️ **关于"实时"的说明**：高德路线 API 返回的是**查询时点的路线计算结果**，
+> **不是实时路况**。用 `strategy=0`（速度优先）时更明确不含拥堵规避。
+> 里程/时长/收费均为**估算值**；需要实时拥堵、施工、封路信息时，
+> 本项目要求引用**交通状态字段或官方交通源**（省交通厅 / 12328 / 景区官微），
+> 不会把一次路线查询包装成"实时路况"。详见 [SKILL.md §2.1](SKILL.md)。
 
 ### 它解决什么问题
 
@@ -69,14 +76,17 @@
 
 ## 功能特性
 
-### 🗺 路线与数据（高德 REST 实时导航）
+### 🗺 路线与数据（高德 REST 路线计算）
 
-- **逐段里程核验**：以高德 REST `/v3/direction/driving?strategy=0` 为**主口径**，直接取实时导航返回的真实里程与时长；OSRM 作独立交叉引擎（只信里程，不信时长——其对中国限速的模型不准）
+- **逐段里程核验**：以高德 REST `/v3/direction/driving?strategy=0` 为**主口径**，取查询时点返回的里程与预计时长；OSRM 作独立交叉引擎（只信里程，不信时长——其对中国限速的模型不准）
 - **POI 坐标校准**：非城区 POI 先经 `/v3/place/text` 校准坐标，避免景区支线段里程失真
 - **落脚点比选三步法**：按**纯驾驶时长**而非里程挑过夜城市，比"最长单日"而非平均值
 - **单日疲劳预警**：纯驾驶 > 8 h 的日子单独标出
 
-> 为什么是高德：国内路网数据最准的来源之一，且**返回的是当前路况下的结果**，不是训练数据里的记忆。
+> 为什么是高德：路网数据最新最全的来源之一。**相比"模型记忆里的数字"，这是实质改进** ——
+> 但它返回的是查询时点的**路线估算**，不是实时路况。里程/时长标为「查询时点估算」，
+> 施工与封路一律走官方交通源（省交通厅 / 12328 / 景区官微）。
+> 想更贴近路况可换 `strategy=10/12`（考虑路况、躲避拥堵），但**换了策略就换了口径**，需全行程重算。
 
 ### 📰 小红书情报检索（反过时）
 
@@ -101,6 +111,10 @@
 | **C · 完整** | 明确要求"图必须对得上" | ①–⑤ 全部 |
 
 五道闸门：**① 有效性**（破图/防盗链占位图/头像）→ **② 尺寸合理性**（挡长图拼接）→ **③ 素材类型**（挡攻略信息图）→ **④ 语义一致性**（`keywords` 必须命中图片邻近文案）→ **⑤ 命名互锁**（`photos/d{天:02d}-{cat}.webp`）。
+
+> 🔒 **图片是纯图片，不带任何跳转链接** —— 不生成"图片来源"外链区，不给 `<img>` 套 `<a href>`。
+> 小红书的笔记链接带**有时效的访问参数**，写进对外页面迟早失效，读者点进去看到"内容不存在"
+> 比不放链接更糟。路书是带在手上的离线文档，图片的价值在于看到，不在于点得动。
 
 ### 🎯 交互式需求采集
 
@@ -217,7 +231,20 @@ mkdir -p ~/.config/roadbook
 echo -n "你的KEY" > ~/.config/roadbook/amap.key
 ```
 
-> ⚠️ **密钥纪律**：**不要把 Key 贴进对话** —— 对话通道会对疑似密钥做截断/脱敏（实测 40 字符的凭据只收到 24 字符）。一律让用户写成文件，脚本读文件。`preflight.py` 也只回报长度与前缀特征，**绝不回显密钥本体**。
+> ⚠️ **密钥纪律**：**不要把 Key 贴进对话** —— 对话通道会对疑似密钥做截断/脱敏（实测 40 字符的凭据只收到 24 字符）。一律让用户写成文件，脚本读文件。
+
+**`preflight.py` 的输出默认已脱敏**，可以放心贴进 issue 或截图：
+
+| 内容 | 默认输出 | 加 `--verbose` |
+|---|---|---|
+| 高德 Key | `已配置（长度 32）` —— **不输出任何字符、哈希或路径** | 同上 + 脱敏路径 |
+| 依赖路径 | `已找到` / `<home>\.local\bin\bsk.exe` | 完整脱敏路径 |
+| bsk 原始状态 | 不输出 | 脱敏后的前 200 字符 |
+| 家目录 | `<home>` 或 `E:\…\尾两层` | 同左 |
+
+输出前还有一道兜底扫描，自动拦截 `xsec_token` / `cookie` / `authorization` / `Bearer` / `api_key` / `secret` / `C:\Users\…` / `/home/…`。
+
+需要排查环境问题时再加 `--verbose`。
 
 ### bsk 安装
 
@@ -384,7 +411,9 @@ Key 的服务平台选错了。必须选「**Web 服务**」，而不是「Web�
 <details>
 <summary><b>必须用高德吗？可以用 Google Maps / OSRM 吗？</b></summary>
 
-高德 REST 是**主口径**，因为它是国内路网数据最准的来源。OSRM 免 Key，作为独立交叉引擎（偏差 >10% 需人工复核）。两者角色不同、不可平权——冲突时以高德为准。
+高德 REST 是**主口径**，因为它的路网数据最新最全（这点明显优于模型记忆）。OSRM 免 Key，作为独立交叉引擎（偏差 >10% 需人工复核）。两者角色不同、不可平权——冲突时以高德为准。
+
+但要注意**高德给的是「查询时点的路线估算」，不是实时路况**：里程、时长、收费都是估算值。实时拥堵 / 施工 / 封路请走官方交通源（省交通厅 / 12328 / 景区官微）。
 </details>
 
 <details>
