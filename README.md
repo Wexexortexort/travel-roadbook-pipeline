@@ -187,7 +187,7 @@ python scripts/preflight.py --workdir /path/to/your/roadbook
 帮我做一份国庆 7 天川西小环线的路书，从成都出发，2 人轮换开车，纯电车
 ```
 
-Agent 会按流水线推进：
+Agent 会按编排链推进：
 
 ```
 Phase -1  环境预检          → 缺什么先补什么
