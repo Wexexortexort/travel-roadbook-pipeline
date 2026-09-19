@@ -1,0 +1,50 @@
+# ── Python ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ── 密钥与凭据（切勿提交）───────────────────────────────
+*.key
+*_key.txt
+amap.key
+gh.key
+.env
+.env.*
+secrets.json
+credentials.json
+
+# ── 路书工作区产物 ──────────────────────────────────────
+# 这些是运行 skill 时产生的，不属于本仓库
+photos/
+raw/
+backup/
+cands.json
+verdict.json
+photos.json
+preflight-report.*
+*.roadbook.html
+路书.html
+图片替换/
+
+# ── 编辑器 / 系统 ───────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── 字体（体积大，且多为商业授权，不入库）───────────────
+fonts/
+*.ttf
+*.otf
+*.woff
+*.woff2
