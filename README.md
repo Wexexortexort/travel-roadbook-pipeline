@@ -132,11 +132,14 @@
 
 | 依赖 | 必需性 | 说明 |
 |---|---|---|
-| **Python 3.10+** | 必需 | |
-| **Pillow** | 必需 | 图片处理（`imgcrop.py`） |
-| **bsk**（browser-skill） | 必需 | 复用你已登录的 Chrome 抓小红书；`preflight.py` 会给出安装指引 |
-| **高德 REST Key** | 必需 | 免费申请，见下方 |
-| **fontTools** | 可选 | 仅自托管中文字体子集化时需要 |
+| **Python 3.10+** | 🔴 **必需** | 运行全部构建与校验脚本 |
+| **高德 REST Key** | 🟡 建议（**可跳过**） | 免费申请；没有则里程走 OSRM 或由用户提供读数，全部标 ⏳ 待核实 |
+| **浏览器自动化工具** | 🟡 建议（**可跳过**） | **任选其一，不锁死实现**：bsk / browser-use / Agent-Browser / Playwright |
+| **Pillow** | 🟡 建议（可跳过） | 图片处理（`imgcrop.py`）；不做图则免 |
+| **fontTools** | ⚪ 可选 | 仅自托管中文字体子集化时需要 |
+
+> **只有第一档会挡住你。** 高德 Key 与浏览器工具都没有时，技能照常开工 ——
+> 走备选方案（OSRM 里程 / 由用户贴攻略链接），只是相关内容会标注 ⏳ 待核实。
 
 ### 方式一：作为 Agent 技能安装（推荐）
 
@@ -172,7 +175,7 @@ git clone https://github.com/Wexexortexort/travel-roadbook-pipeline.git <你的�
 ```bash
 git clone https://github.com/Wexexortexort/travel-roadbook-pipeline.git
 cd travel-roadbook-pipeline
-python -m pip install pillow          # 必需
+python -m pip install pillow          # 建议（不做图则免）
 python -m pip install fonttools       # 可选
 ```
 
@@ -185,8 +188,9 @@ python scripts/preflight.py --workdir /path/to/your/roadbook
 输出：
 
 ```
-✅ 就绪            全部关键依赖在位
-❌ 缺少关键依赖    缺高德 Key 或 bsk，必须先补齐
+✅ 全部依赖就位        可做全量核验（含高德 Key 与浏览器工具）
+🟡 可以开工（降级模式） 只缺「建议项」—— 照常开工、走备选方案，交付时标注未核实项
+❌ 缺少必需项          只有这一档真的挡住你
 ```
 
 缺什么，脚本会直接告诉你怎么补 —— 它的缺失指引是自包含的，不依赖任何上游上下文。
@@ -218,7 +222,7 @@ Phase  6  交付前自检        → 静态检查 + 数据守恒 + 浏览器实�
 
 ## 配置说明
 
-### 高德 Key（免费）
+### 高德 Key（可选，免费）
 
 1. 到 [lbs.amap.com](https://lbs.amap.com) 注册并完成**实名认证**（个人开发者即可）
 2. 控制台 → 应用管理 → 创建应用 → 添加 Key
@@ -239,26 +243,40 @@ echo -n "你的KEY" > ~/.config/roadbook/amap.key
 |---|---|---|
 | 高德 Key | `已配置（长度 32）` —— **不输出任何字符、哈希或路径** | 同上 + 脱敏路径 |
 | 依赖路径 | `已找到` / `<home>\.local\bin\bsk.exe` | 完整脱敏路径 |
-| bsk 原始状态 | 不输出 | 脱敏后的前 200 字符 |
+| 浏览器工具原始状态 | 不输出 | 脱敏后的前 200 字符 |
 | 家目录 | `<home>` 或 `E:\…\尾两层` | 同左 |
 
 输出前还有一道兜底扫描，自动拦截 `xsec_token` / `cookie` / `authorization` / `Bearer` / `api_key` / `secret` / `C:\Users\…` / `/home/…`。
 
 需要排查环境问题时再加 `--verbose`。
 
-### bsk 安装
+### 浏览器自动化工具（可选，任选其一）
 
-1. 安装 browser-skill CLI
-2. 在 Chrome 里安装 BrowserSkill 扩展并启用
-3. **在该 Chrome 登录 [xiaohongshu.com](https://www.xiaohongshu.com)**（bsk 复用你的登录态，这是它比爬虫可靠的原因）
-4. 验证：`bsk status --json` → `browsers connected` 非 0
+技能只要求三项能力：**打开页面 / 取整页 HTML / 在页面上下文执行 JS**，且能复用你的登录态。
+**不锁定具体实现**，以下任选其一：
+
+| 工具 | 安装 | 说明 |
+|---|---|---|
+| **browser-skill (bsk)** ⭐首选 | `npm i -g browser-skill` | 直接复用本机 Chrome 登录态，无需另配 profile，最省事 |
+| **browser-use** | `pip install browser-use` | 通用浏览器自动化 agent |
+| **Agent-Browser** | `npm i -g agent-browser` | 通用浏览器自动化 CLI |
+| **Playwright CLI** | `npm i -g playwright` | 官方框架，需自备持久化 profile |
+
+用 bsk 时额外两步：
+
+1. 在 Chrome 里安装 BrowserSkill 扩展并启用
+2. **在该 Chrome 登录 [xiaohongshu.com](https://www.xiaohongshu.com)**（bsk 复用你的登录态，这是它比爬虫可靠的原因）
+
+验证：`bsk status --json` → `browsers connected` 非 0。
+
+> **一个都没有也没关系** —— 让用户直接贴攻略链接或截图即可（`xhs-shared-note-extract` 无需登录就能读正文），只是在地情报会变薄。
 
 ### 环境变量（依赖不在标准位置时）
 
 `preflight.py` 按 **环境变量 → 标准位置 → PATH** 的顺序查找，脚本内**不含任何写死的路径**：
 
 ```bash
-export BSK_PATH=/path/to/bsk              # bsk 可执行文件
+export BROWSER_TOOL_PATH=/path/to/tool     # 浏览器自动化工具（旧名 BSK_PATH 仍兼容）
 export AMAP_KEY_FILE=/path/to/amap.key    # 高德 Key 文件
 ```
 
